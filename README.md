@@ -1,63 +1,73 @@
-# 🔥 Fire Detection & Extinguishing System using RTOS
+# Fire Detection and Extinguishing System using RTOS
 
-> **Platform:** LPC1768 (ARM Cortex-M3) | **RTOS:** RTX Kernel (Keil MDK) | **Language:** Embedded C
+**Platform:** LPC1768 (ARM Cortex-M3) | **RTOS:** RTX Kernel (Keil MDK) | **Language:** Embedded C
 
-A real-time, multi-floor fire detection and suppression system built on the **LPC1768 microcontroller** using **RTX RTOS task scheduling and event flags**. Detects fire via IR flame sensors and autonomously triggers buzzer alarms and DC water pumps per floor.
+A real-time, multi-floor fire detection and suppression system built on the LPC1768 microcontroller using RTX RTOS task scheduling and event flags. Detects fire via IR flame sensors and autonomously triggers buzzer alarms and DC water pumps per floor.
 
 ---
 
-## 📌 Project Overview
+## Project Overview
 
-| Property | Detail |
+| Property | Details |
 |---|---|
 | Microcontroller | NXP LPC1768 (ARM Cortex-M3, 100 MHz) |
 | RTOS | Keil RTX Kernel |
 | Sensor | IR Flame Sensor (YG1006 phototransistor, 760–1100 nm) |
-| Actuators | 2× Buzzer, 2× DC Pump (via ULN2003 relay driver) |
-| Coverage | 2 floors / zones |
-| Response time | < 40 µs (optimized code profiling result) |
-| Total BOM cost | ₹560 |
+| Actuators | 2x Buzzer, 2x DC Pump (via ULN2003 relay driver) |
 
 ---
 
-## 🏗️ System Architecture
+## System Architecture
+
+The system models a two-floor building, with each floor independently monitored and controlled. This structure was chosen deliberately to demonstrate multi-task concurrency: a single-floor system would not require more than one response task, whereas two floors introduce competing fire conditions that must be handled simultaneously and independently by the RTOS scheduler.
+
+The RTX kernel (Real-Time eXecutive by Keil) is a preemptive, priority-based RTOS for ARM Cortex-M microcontrollers. It provides deterministic task scheduling, event flags for inter-task signalling, and task management APIs — all running directly on bare-metal hardware with no operating system underneath. Each task is assigned a fixed priority; when a higher-priority task becomes ready, the kernel preempts the current task immediately.
 
 ```
-┌────────────────────────────────────────────────────────┐
-│                    RTX RTOS Kernel                     │
-│                                                        │
-│  job1 (prio 2) ──► Fire Detection (sensing loop)      │
-│      │                                                 │
-│      ├─── both floors ──► job2 (prio 4)               │
-│      ├─── floor 1 only ──► job3 (prio 5)              │
-│      ├─── floor 2 only ──► job4 (prio 6)              │
-│      └─── no fire      ──► job5 (prio 7)              │
-└────────────────────────────────────────────────────────┘
-         ▲                        ▼
++--------------------------------------------------------+
+|                    RTX RTOS Kernel                     |
+|                                                        |
+|  job1 (prio 2) ---> Fire Detection (sensing loop)     |
+|      |                                                 |
+|      +--- both floors ---> job2 (prio 4)              |
+|      +--- floor 1 only --> job3 (prio 5)              |
+|      +--- floor 2 only --> job4 (prio 6)              |
+|      +--- no fire      --> job5 (prio 7)              |
++--------------------------------------------------------+
+         ^                        v
    Flame Sensors           Buzzers + DC Pumps
    (GPIO inputs)           (GPIO outputs via relay)
 ```
 
-Tasks communicate exclusively through **RTX event flags** (`os_evt_set` / `os_evt_wait_or`) — no shared memory, no polling delays.
+Tasks communicate exclusively through RTX event flags (`os_evt_set` / `os_evt_wait_or`) — no shared memory, no polling delays.
+
+![Hardware setup — two-floor model with LPC1768 board and wired sensors](docs/hardware.jpg)
 
 ---
 
-## ⚙️ RTOS Design Details
+## RTOS Design Details
+
+The design applies core RTOS concepts to a physical, multi-zone problem:
+
+- **Preemptive multitasking** — five concurrent tasks run under the RTX scheduler. The fire detection task (job1) holds the highest priority so sensor reads are never delayed by actuation tasks.
+- **Priority-based dispatch** — each fire condition (both floors, floor 1 only, floor 2 only, no fire) maps to a dedicated task at a distinct priority. The kernel guarantees that the correct task runs first when multiple events are pending.
+- **Event-flag synchronization** — response tasks block on `os_evt_wait_or` and consume zero CPU while waiting. job1 unblocks exactly the relevant task via `os_evt_set`, avoiding polling loops and unnecessary context switches.
+- **Task isolation** — each response task owns its floor's actuators exclusively. There is no shared state between tasks; all coordination is through flags, which eliminates race conditions without needing mutexes.
 
 ### Tasks
 
 | Task | Priority | Role |
 |------|----------|------|
 | `job1` | 2 | Reads both flame sensors; dispatches events to response tasks |
-| `job2` | 4 | Both floors on fire → activates all buzzers and pumps |
-| `job3` | 5 | Floor 1 fire → activates floor 1, deactivates floor 2 |
-| `job4` | 6 | Floor 2 fire → activates floor 2, deactivates floor 1 |
-| `job5` | 7 | No fire → deactivates all actuators |
+| `job2` | 4 | Both floors on fire — activates all buzzers and pumps |
+| `job3` | 5 | Floor 1 fire — activates floor 1, deactivates floor 2 |
+| `job4` | 6 | Floor 2 fire — activates floor 2, deactivates floor 1 |
+| `job5` | 7 | No fire — deactivates all actuators |
 
 ### Kernel Objects Used
 
-- **Task Management** (`os_tsk_create`, `os_tsk_prio_self`) — enables true concurrency on the Cortex-M3
-- **Event Flags** (`os_evt_set`, `os_evt_wait_or`) — zero-latency inter-task signalling without busy-waiting
+- **Task Management** (`os_tsk_create`, `os_tsk_prio_self`) — enables true concurrency on the Cortex-M3; each task runs as an independent thread with its own stack
+- **Event Flags** (`os_evt_set`, `os_evt_wait_or`) — zero-latency inter-task signalling without busy-waiting; blocked tasks are resumed by the kernel in O(1) time
 
 ### Optimization Techniques
 
@@ -67,22 +77,7 @@ Tasks communicate exclusively through **RTX event flags** (`os_evt_set` / `os_ev
 
 ---
 
-## 🔌 Hardware Connections (GPIO Port 0)
-
-| Signal | Pin | Direction |
-|--------|-----|-----------|
-| Buzzer — Floor 1 | P0.27 | Output |
-| Relay (DC Pump) — Floor 1 | P0.23 | Output |
-| Flame Sensor OUT — Floor 1 | P0.25 | Input |
-| Buzzer — Floor 2 | P0.0 | Output |
-| Relay (DC Pump) — Floor 2 | P0.1 | Output |
-| Flame Sensor OUT — Floor 2 | P0.10 | Input |
-
-> The relay driver IC **ULN2003** is used between the LPC1768 GPIO and the DC pump to handle the higher current load.
-
----
-
-## 🧪 Test Cases
+## Test Cases
 
 | Test Case | Sensor 1 | Sensor 2 | Expected Behaviour |
 |-----------|----------|----------|--------------------|
@@ -93,31 +88,23 @@ Tasks communicate exclusively through **RTX event flags** (`os_evt_set` / `os_ev
 
 ---
 
-## 📊 Performance Results
-
-| Code Type | Execution Time | Memory Used |
-|-----------|---------------|-------------|
-| Optimized | 40 µs | 5110 bytes |
-| Unoptimized | 45 µs | 5220 bytes |
-
----
-
-## 🗂️ Repository Structure
+## Repository Structure
 
 ```
 rtos-fire-detection/
 ├── src/
 │   └── fire_detection.c    # Full annotated source code
 ├── docs/
-│   └── project_report.pdf  # Original KLE Tech project report (Jan 2024)
+│   ├── hardware.jpg        # Hardware setup photo
+│   └── project_report.pdf  # College project report (KLE Tech, Jan 2024)
 └── README.md
 ```
 
 ---
 
-## 🛠️ Build Instructions
+## Build Instructions
 
-1. Open **Keil µVision** (MDK-ARM)
+1. Open **Keil uVision** (MDK-ARM)
 2. Create a new project targeting the **LPC1768**
 3. Add `src/fire_detection.c` to the project
 4. Add the **RTX RTOS** component from the CMSIS pack
@@ -127,7 +114,7 @@ rtos-fire-detection/
 
 ---
 
-## 👥 Authors
+## Authors
 
 | Name | Roll No. |
 |------|----------|
@@ -136,11 +123,5 @@ rtos-fire-detection/
 | Krithika Patgar | 01FE21BEE017 |
 | Parveen Khatal | 01FE21BEE019 |
 
-**Department of Electrical & Electronics Engineering**  
+**Department of Electrical & Electronics Engineering**
 KLE Technological University, Hubballi — January 2024
-
----
-
-## 📄 License
-
-This project is shared for educational and portfolio purposes.
