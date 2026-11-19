@@ -114,14 +114,4 @@ rtos-fire-detection/
 
 ---
 
-## Authors
 
-| Name | Roll No. |
-|------|----------|
-| Raksha Kulal | 01FE21BEE005 |
-| Shrinidhi Shambhoji | 01FE21BEE011 |
-| Krithika Patgar | 01FE21BEE017 |
-| Parveen Khatal | 01FE21BEE019 |
-
-**Department of Electrical & Electronics Engineering**
-KLE Technological University, Hubballi — January 2024
