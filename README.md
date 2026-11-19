@@ -10,7 +10,7 @@ A real-time, multi-floor fire detection and suppression system built on the LPC1
 
 | Property | Details |
 |---|---|
-| Microcontroller | NXP LPC1768 (ARM Cortex-M3, 100 MHz) |
+| Microcontroller | NXP LPC1768 (ARM Cortex-M3) |
 | RTOS | Keil RTX Kernel |
 | Sensor | IR Flame Sensor (YG1006 phototransistor, 760–1100 nm) |
 | Actuators | 2x Buzzer, 2x DC Pump (via ULN2003 relay driver) |
